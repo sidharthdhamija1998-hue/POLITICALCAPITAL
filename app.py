@@ -97,7 +97,7 @@ def sample_trades():
             for m, a, t, amt, fd in rows]
 
 
-def fetch_live(api_key, max_pages=3, limit=100):
+def fetch_live(api_key, max_pages=6, limit=25):
     """Real House disclosures from FMP's stable/house-latest endpoint.
     Tolerant of empty trailing pages; surfaces HTTP errors clearly."""
     import requests
@@ -282,8 +282,20 @@ def render():
     asof = date.today() if source == "fmp" else date(2025, 6, 30)
     effective = "sample" if source in ("sample", "fmp_nokey") else "fmp"
 
+    import time
     try:
-        stocks, themes, unmapped = run_engine(effective, lookback, asof, api_key)
+        if effective == "fmp":
+            c = st.session_state.get("_raw_cache")
+            if c and c["key"] == api_key and time.time() - c["t"] < 1800:
+                raw = c["raw"]                       # reuse for 30 min (saves API calls)
+            else:
+                raw = fetch_live(api_key)
+                st.session_state["_raw_cache"] = {"raw": raw, "key": api_key, "t": time.time()}
+        else:
+            raw = sample_trades()
+        trades, unmapped = normalize(raw, asof, lookback)
+        stocks = score_stocks(trades, asof)
+        themes = rank_themes(stocks)
     except Exception as e:
         st.error(f"Live fetch failed: {e}")
         st.info("If the message mentions premium / legacy / 403, the congressional endpoint isn't on "
