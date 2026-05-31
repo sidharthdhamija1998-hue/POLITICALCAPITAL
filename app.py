@@ -126,34 +126,32 @@ def sample_trades():
             for m, a, t, amt, fd in rows]
 
 
-def fetch_live(api_key, max_pages=10, limit=25):
-    """Real House disclosures from FMP stable/house-latest (free-tier limit<=25)."""
+def fetch_live(api_key, limit=25):
+    """Latest House + Senate disclosures from FMP. Free tier locks page=0 and
+    limit<=25, so we widen coverage by combining both chambers instead of paging."""
     import requests
     _DEBUG_RAW.clear()
     rows = []
-    for page in range(max_pages):
-        url = (f"https://financialmodelingprep.com/stable/house-latest"
-               f"?page={page}&limit={limit}&apikey={api_key}")
+    for endpoint in ("house-latest", "senate-latest"):
+        url = (f"https://financialmodelingprep.com/stable/{endpoint}"
+               f"?page=0&limit={limit}&apikey={api_key}")
         resp = requests.get(url, timeout=30)
         if resp.status_code != 200:
-            if page == 0:
+            if endpoint == "house-latest":
                 raise RuntimeError(f"HTTP {resp.status_code} from FMP: {(resp.text or '')[:200]}")
-            break
-        body = (resp.text or "").strip()
-        if not body:
-            break
+            continue  # senate is a bonus; skip if unavailable
         try:
             data = resp.json()
         except Exception:
-            if page == 0:
-                raise RuntimeError(f"FMP returned non-JSON: {body[:200]}")
-            break
+            if endpoint == "house-latest":
+                raise RuntimeError(f"FMP returned non-JSON: {(resp.text or '')[:200]}")
+            continue
         if isinstance(data, dict):
-            raise RuntimeError(data.get("Error Message") or data.get("message") or str(data))
-        if not data:
-            break
+            if endpoint == "house-latest":
+                raise RuntimeError(data.get("Error Message") or data.get("message") or str(data))
+            continue
         for i, r in enumerate(data):
-            if page == 0 and i == 0:
+            if endpoint == "house-latest" and i == 0:
                 _DEBUG_RAW["first"] = r
             first = (r.get("firstName") or "").strip()
             last = (r.get("lastName") or "").strip()
