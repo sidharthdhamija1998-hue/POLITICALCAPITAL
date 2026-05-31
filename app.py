@@ -97,18 +97,30 @@ def sample_trades():
             for m, a, t, amt, fd in rows]
 
 
-def fetch_live(api_key, max_pages=3):
+def fetch_live(api_key, max_pages=3, limit=100):
     """Real House disclosures from FMP's stable/house-latest endpoint.
-    Maps fields defensively and stashes the first raw record for debugging."""
+    Tolerant of empty trailing pages; surfaces HTTP errors clearly."""
     import requests
     _DEBUG_RAW.clear()
     rows = []
     for page in range(max_pages):
         url = (f"https://financialmodelingprep.com/stable/house-latest"
-               f"?page={page}&limit=100&apikey={api_key}")
+               f"?page={page}&limit={limit}&apikey={api_key}")
         resp = requests.get(url, timeout=30)
-        data = resp.json()
-        if isinstance(data, dict):  # FMP returns a dict only on error
+        if resp.status_code != 200:
+            if page == 0:
+                raise RuntimeError(f"HTTP {resp.status_code} from FMP: {(resp.text or '')[:200]}")
+            break
+        body = (resp.text or "").strip()
+        if not body:                 # empty trailing page -> stop, don't crash
+            break
+        try:
+            data = resp.json()
+        except Exception:
+            if page == 0:
+                raise RuntimeError(f"FMP returned non-JSON: {body[:200]}")
+            break
+        if isinstance(data, dict):   # FMP error payload
             raise RuntimeError(data.get("Error Message") or data.get("message") or str(data))
         if not data:
             break
